@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { FaSms, FaCheckCircle } from 'react-icons/fa';
+import { FaSms, FaCheckCircle, FaPlus, FaTimes } from 'react-icons/fa';
 import { smsService } from '../../api/api';
 import Toast from '../Common/Toast';
 import LoadingSpinner from '../Common/LoadingSpinner';
 
 const SmsForm = () => {
   const [formData, setFormData] = useState({
-    number: '',
+    numbers: [''],
     message: '',
   });
   const [loading, setLoading] = useState(false);
@@ -14,27 +14,65 @@ const SmsForm = () => {
   const [charCount, setCharCount] = useState(0);
   const MAX_CHARS = 160;
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    if (name === 'message') {
-      setCharCount(value.length);
+  const handleNumberChange = (index, value) => {
+    const newNumbers = [...formData.numbers];
+    newNumbers[index] = value;
+    setFormData(prev => ({ ...prev, numbers: newNumbers }));
+  };
+
+  const addNumber = () => {
+    setFormData(prev => ({
+      ...prev,
+      numbers: [...prev.numbers, '']
+    }));
+  };
+
+  const removeNumber = (index) => {
+    if (formData.numbers.length > 1) {
+      const newNumbers = formData.numbers.filter((_, i) => i !== index);
+      setFormData(prev => ({ ...prev, numbers: newNumbers }));
     }
+  };
+
+  const handleMessageChange = (e) => {
+    const value = e.target.value;
+    setFormData(prev => ({ ...prev, message: value }));
+    setCharCount(value.length);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Filtrer les numéros vides
+    const validNumbers = formData.numbers.filter(num => num.trim() !== '');
+    
+    if (validNumbers.length === 0) {
+      setToast({ 
+        message: 'Veuillez saisir au moins un numéro de téléphone', 
+        type: 'error' 
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const response = await smsService.send(formData);
+      // Envoyer un SMS par numéro ou un seul SMS avec tous les numéros
+      // Selon l'API, on peut envoyer à plusieurs destinataires en une seule requête
+      const response = await smsService.send({
+        numbers: validNumbers, // Envoyer un tableau de numéros
+        message: formData.message,
+      });
+      
       setToast({ 
-        message: response.data.success ? 'SMS envoyé avec succès!' : 'Erreur lors de l\'envoi', 
+        message: response.data.success 
+          ? `SMS envoyé avec succès à ${validNumbers.length} destinataire(s)!` 
+          : 'Erreur lors de l\'envoi', 
         type: response.data.success ? 'success' : 'error' 
       });
       
       if (response.data.success) {
-        setFormData({ number: '', message: '' });
+        setFormData({ numbers: [''], message: '' });
         setCharCount(0);
       }
     } catch (error) {
@@ -55,17 +93,39 @@ const SmsForm = () => {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Numéro de téléphone <span className="text-red-500">*</span>
+            Numéros de téléphone <span className="text-red-500">*</span>
           </label>
-          <input
-            type="tel"
-            name="number"
-            value={formData.number}
-            onChange={handleChange}
-            placeholder="+261XXXXXXXXX"
-            className="input-field"
-            required
-          />
+          <div className="space-y-2">
+            {formData.numbers.map((number, index) => (
+              <div key={index} className="flex items-center space-x-2">
+                <input
+                  type="tel"
+                  value={number}
+                  onChange={(e) => handleNumberChange(index, e.target.value)}
+                  placeholder="+261XXXXXXXXX"
+                  className="input-field flex-1"
+                  required={index === 0}
+                />
+                {formData.numbers.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeNumber(index)}
+                    className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <FaTimes className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={addNumber}
+            className="mt-2 text-sm text-blue-600 hover:text-blue-800 flex items-center"
+          >
+            <FaPlus className="mr-1" />
+            Ajouter un numéro
+          </button>
           <p className="text-xs text-gray-500 mt-1">Format: +261 suivi de 9 chiffres</p>
         </div>
 
@@ -81,13 +141,17 @@ const SmsForm = () => {
           <textarea
             name="message"
             value={formData.message}
-            onChange={handleChange}
+            onChange={handleMessageChange}
             rows="4"
             placeholder="Votre message SMS..."
             className={`input-field ${charCount > MAX_CHARS ? 'border-red-500' : ''}`}
             maxLength={MAX_CHARS}
             required
           />
+        </div>
+
+        <div className="text-sm text-gray-500">
+          <p>Destinataires: {formData.numbers.filter(n => n.trim() !== '').length}</p>
         </div>
 
         <button
