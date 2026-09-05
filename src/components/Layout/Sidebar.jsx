@@ -5,7 +5,8 @@ import {
   FaEnvelope, 
   FaSms, 
   FaInbox,
-  FaPaperPlane
+  FaPaperPlane,
+  FaChartBar
 } from 'react-icons/fa';
 
 const Sidebar = () => {

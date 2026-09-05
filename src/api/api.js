@@ -39,4 +39,11 @@ export const smsService = {
   sync: () => api.post('/sms/sync'),
 };
 
+// Services Statistiques
+export const statsService = {
+  getSimpleStats: (params) => api.get('/sms/chart/simple', { params }),
+  getFullStats: (params) => api.get('/sms/chart/stats', { params }),
+  getWeekdayStats: (params) => api.get('/sms/chart/weekday', { params }),
+};
+
 export default api;

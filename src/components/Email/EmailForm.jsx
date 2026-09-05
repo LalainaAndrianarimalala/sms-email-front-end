@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FaPaperPlane, FaTimes } from 'react-icons/fa';
+import { FaPaperPlane } from 'react-icons/fa';
 import { emailService } from '../../api/api';
 import Toast from '../Common/Toast';
 import LoadingSpinner from '../Common/LoadingSpinner';
@@ -10,34 +10,13 @@ const EmailForm = () => {
     subject: '',
     message: '',
     name: '',
-    html: '',
   });
-  const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleFileUpload = (e) => {
-    const files = Array.from(e.target.files);
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setAttachments(prev => [...prev, {
-          filename: file.name,
-          content: event.target.result,
-          encoding: 'base64'
-        }]);
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const removeAttachment = (index) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e) => {
@@ -48,15 +27,11 @@ const EmailForm = () => {
       const payload = {
         ...formData,
         to: formData.to.split(',').map(email => email.trim()).filter(email => email),
-        attachments: attachments,
       };
 
       const response = await emailService.send(payload);
       setToast({ message: response.data.message || 'Email envoyé avec succès!', type: 'success' });
-      
-      // Reset form
-      setFormData({ to: '', subject: '', message: '', name: '', html: '' });
-      setAttachments([]);
+      setFormData({ to: '', subject: '', message: '', name: '' });
     } catch (error) {
       const message = error.response?.data?.message || 'Erreur lors de l\'envoi de l\'email';
       setToast({ message, type: 'error' });
@@ -86,7 +61,6 @@ const EmailForm = () => {
             className="input-field"
             required
           />
-          <p className="text-xs text-gray-500 mt-1">Séparer les adresses par des virgules</p>
         </div>
 
         <div>
@@ -131,50 +105,6 @@ const EmailForm = () => {
             className="input-field"
             required
           />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            HTML (optionnel)
-          </label>
-          <textarea
-            name="html"
-            value={formData.html}
-            onChange={handleChange}
-            rows="4"
-            placeholder="Contenu HTML personnalisé..."
-            className="input-field font-mono text-sm"
-          />
-          <p className="text-xs text-gray-500 mt-1">Laissez vide pour utiliser le formatage automatique</p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Pièces jointes
-          </label>
-          <input
-            type="file"
-            multiple
-            onChange={handleFileUpload}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          />
-          
-          {attachments.length > 0 && (
-            <div className="mt-3 space-y-2">
-              {attachments.map((att, index) => (
-                <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
-                  <span className="text-sm text-gray-700">{att.filename}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <FaTimes />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         <button
