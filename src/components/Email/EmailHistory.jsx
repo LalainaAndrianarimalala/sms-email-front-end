@@ -12,36 +12,196 @@ import {
   FaChevronRight,
   FaUser,
   FaCalendar,
-  FaReply
+  FaReply,
+  FaFilter,
+  FaTimes,
+  FaFileExcel,
+  FaSort,
+  FaSortUp,
+  FaSortDown
 } from 'react-icons/fa';
+import * as XLSX from 'xlsx';
 import { emailService } from '../../api/api';
 import LoadingSpinner from '../Common/LoadingSpinner';
 import Toast from '../Common/Toast';
 
 const EmailHistory = () => {
   const [emails, setEmails] = useState([]);
+  const [filteredEmails, setFilteredEmails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState({
+    status: '',
+    sender: '',
+    startDate: '',
+    endDate: '',
+  });
+  const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [toast, setToast] = useState(null);
+  const [sortField, setSortField] = useState('createdAt');
+  const [sortDirection, setSortDirection] = useState('desc');
 
   useEffect(() => {
     fetchEmails();
   }, []);
 
+  useEffect(() => {
+    applyFilters();
+  }, [emails, searchTerm, filters, sortField, sortDirection]);
+
   const fetchEmails = async () => {
     try {
       setLoading(true);
-      const response = await emailService.list();
+      const response = await emailService.list({ limit: 1000, offset: 0 });
       setEmails(response.data.data || []);
     } catch (error) {
       setError('Erreur lors du chargement de l\'historique');
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...emails];
+
+    // Recherche
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(email => 
+        email.subject?.toLowerCase().includes(search) ||
+        email.recipient?.toLowerCase().includes(search) ||
+        email.sender?.toLowerCase().includes(search) ||
+        email.bodyText?.toLowerCase().includes(search)
+      );
+    }
+
+    // Filtre statut
+    if (filters.status) {
+      filtered = filtered.filter(email => email.status === filters.status);
+    }
+
+    // Filtre expéditeur
+    if (filters.sender) {
+      filtered = filtered.filter(email => 
+        email.sender?.toLowerCase().includes(filters.sender.toLowerCase())
+      );
+    }
+
+    // Filtre date début
+    if (filters.startDate) {
+      const start = new Date(filters.startDate);
+      filtered = filtered.filter(email => 
+        email.createdAt && new Date(email.createdAt) >= start
+      );
+    }
+
+    // Filtre date fin
+    if (filters.endDate) {
+      const end = new Date(filters.endDate);
+      end.setHours(23, 59, 59);
+      filtered = filtered.filter(email => 
+        email.createdAt && new Date(email.createdAt) <= end
+      );
+    }
+
+    // Tri
+    filtered.sort((a, b) => {
+      let aVal = a[sortField] || '';
+      let bVal = b[sortField] || '';
+      
+      if (sortField === 'createdAt') {
+        aVal = new Date(aVal).getTime() || 0;
+        bVal = new Date(bVal).getTime() || 0;
+      }
+      
+      if (sortField === 'subject' || sortField === 'recipient' || sortField === 'sender') {
+        aVal = aVal.toString().toLowerCase();
+        bVal = bVal.toString().toLowerCase();
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    setFilteredEmails(filtered);
+    setCurrentPage(1);
+  };
+
+  const resetFilters = () => {
+    setFilters({
+      status: '',
+      sender: '',
+      startDate: '',
+      endDate: '',
+    });
+    setSearchTerm('');
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIcon = (field) => {
+    if (sortField !== field) return <FaSort className="w-3 h-3" />;
+    return sortDirection === 'asc' ? 
+      <FaSortUp className="w-3 h-3" /> : 
+      <FaSortDown className="w-3 h-3" />;
+  };
+
+  const exportToExcel = () => {
+    try {
+      const exportData = filteredEmails.map(email => ({
+        'ID': email.id,
+        'Sujet': email.subject,
+        'Expéditeur': email.sender,
+        'Destinataire': email.recipient,
+        'Statut': email.status === 'sent' ? 'Envoyé' : email.status === 'failed' ? 'Échoué' : 'En attente',
+        'Message': email.bodyText,
+        'Créé le': email.createdAt ? new Date(email.createdAt).toLocaleString('fr-FR') : 'N/A',
+        'Erreur': email.errorMessage || 'N/A',
+      }));
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      
+      const colWidths = [
+        { wch: 8 },   // ID
+        { wch: 30 },  // Sujet
+        { wch: 20 },  // Expéditeur
+        { wch: 25 },  // Destinataire
+        { wch: 12 },  // Statut
+        { wch: 50 },  // Message
+        { wch: 20 },  // Créé le
+        { wch: 30 },  // Erreur
+      ];
+      ws['!cols'] = colWidths;
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Emails');
+      
+      const fileName = `historique_emails_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      setToast({ 
+        message: `Export Excel effectué avec succès (${filteredEmails.length} emails)`, 
+        type: 'success' 
+      });
+    } catch (err) {
+      setToast({ 
+        message: 'Erreur lors de l\'export Excel', 
+        type: 'error' 
+      });
+      console.error(err);
     }
   };
 
@@ -74,13 +234,6 @@ const EmailHistory = () => {
       minute: '2-digit'
     }).format(date);
   };
-
-  const filteredEmails = emails.filter(email => {
-    const search = searchTerm.toLowerCase();
-    return email.subject?.toLowerCase().includes(search) ||
-           email.recipient?.toLowerCase().includes(search) ||
-           email.bodyText?.toLowerCase().includes(search);
-  });
 
   const paginatedEmails = filteredEmails.slice(
     (currentPage - 1) * itemsPerPage,
@@ -121,99 +274,225 @@ const EmailHistory = () => {
             Historique des Emails
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            {filteredEmails.length} email{filteredEmails.length > 1 ? 's' : ''} au total
+            {filteredEmails.length} email{filteredEmails.length > 1 ? 's' : ''} sur {emails.length} au total
           </p>
         </div>
-        <button className="btn-primary flex items-center space-x-2">
-          <FaDownload className="w-4 h-4" />
-          <span>Exporter</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="btn-primary flex items-center space-x-2"
+          >
+            <FaFilter className="w-4 h-4" />
+            <span>Filtres</span>
+            {(filters.status || filters.sender || filters.startDate || filters.endDate) && (
+              <span className="ml-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                {Object.values(filters).filter(v => v).length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={exportToExcel}
+            className="btn-success flex items-center space-x-2"
+            disabled={filteredEmails.length === 0}
+          >
+            <FaFileExcel className="w-4 h-4" />
+            <span>Exporter Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* Filtres */}
-      <div className="card">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <FaSearch className="absolute left-3 top-3 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Rechercher par sujet, destinataire ou contenu..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input-field pl-10"
-            />
+      {showFilters && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-700 flex items-center">
+              <FaFilter className="mr-2 text-blue-500" />
+              Filtres avancés
+            </h3>
+            <button
+              onClick={resetFilters}
+              className="text-sm text-red-500 hover:text-red-700 flex items-center"
+            >
+              <FaTimes className="mr-1" />
+              Réinitialiser
+            </button>
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                className="input-field"
+              >
+                <option value="">Tous</option>
+                <option value="sent">✅ Envoyé</option>
+                <option value="failed">❌ Échoué</option>
+                <option value="pending">⏳ En attente</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Expéditeur</label>
+              <input
+                type="text"
+                value={filters.sender}
+                onChange={(e) => setFilters(prev => ({ ...prev, sender: e.target.value }))}
+                placeholder="email@exemple.com"
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date début</label>
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date fin</label>
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={resetFilters}
+                className="btn-primary w-full"
+              >
+                Appliquer les filtres
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recherche */}
+      <div className="card">
+        <div className="relative">
+          <FaSearch className="absolute left-3 top-3 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Rechercher par sujet, destinataire ou contenu..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="input-field pl-10"
+          />
         </div>
       </div>
 
       {/* Liste des emails */}
-      <div className="space-y-3">
-        {paginatedEmails.length === 0 ? (
-          <div className="card text-center py-12">
-            <FaEnvelope className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-            <p className="text-gray-500 text-lg">Aucun email trouvé</p>
-            <p className="text-sm text-gray-400">Ajustez vos filtres ou envoyez un nouvel email</p>
-          </div>
-        ) : (
-          paginatedEmails.map((email) => (
-            <div key={email.id} className="card hover:shadow-lg transition-shadow duration-300">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                {/* Info principale */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('subject')}>
+                <div className="flex items-center space-x-1">
+                  <span>Sujet</span>
+                  {getSortIcon('subject')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('sender')}>
+                <div className="flex items-center space-x-1">
+                  <span>Expéditeur</span>
+                  {getSortIcon('sender')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('recipient')}>
+                <div className="flex items-center space-x-1">
+                  <span>Destinataire</span>
+                  {getSortIcon('recipient')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('status')}>
+                <div className="flex items-center space-x-1">
+                  <span>Statut</span>
+                  {getSortIcon('status')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('createdAt')}>
+                <div className="flex items-center space-x-1">
+                  <span>Date</span>
+                  {getSortIcon('createdAt')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {paginatedEmails.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                  <FaEnvelope className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <p>Aucun email trouvé</p>
+                  <p className="text-sm text-gray-400">Ajustez vos filtres ou envoyez un nouvel email</p>
+                </td>
+              </tr>
+            ) : (
+              paginatedEmails.map((email) => (
+                <tr key={email.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3">
+                    <p className="text-sm font-medium text-gray-700 max-w-xs truncate">{email.subject}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm text-gray-600 max-w-xs truncate">{email.sender}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gray-600 max-w-xs truncate">{email.recipient}</span>
+                      <button
+                        onClick={() => handleCopyEmail(email.recipient)}
+                        className="text-xs text-blue-500 hover:text-blue-700 flex-shrink-0"
+                      >
+                        Copier
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
                     {getStatusBadge(email.status)}
-                    <span className="text-xs text-gray-400 flex items-center">
-                      <FaCalendar className="mr-1 w-3 h-3" />
-                      {formatDate(email.createdAt)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold flex-shrink-0">
-                      {email.sender?.charAt(0).toUpperCase() || 'E'}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    {formatDate(email.createdAt)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setSelectedEmail(email)}
+                        className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Voir les détails"
+                      >
+                        <FaEye className="w-4 h-4" />
+                      </button>
+                      <button
+                        className="p-1.5 text-gray-400 hover:text-green-500 hover:bg-green-50 rounded-lg transition-colors"
+                        title="Répondre"
+                      >
+                        <FaReply className="w-4 h-4" />
+                      </button>
+                      <button
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Supprimer"
+                      >
+                        <FaTrash className="w-4 h-4" />
+                      </button>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <FaUser className="w-3 h-3 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-800">{email.sender}</span>
-                        <span className="text-xs text-gray-400">→</span>
-                        <span 
-                          className="text-sm text-gray-600 cursor-pointer hover:text-blue-500"
-                          onClick={() => handleCopyEmail(email.recipient)}
-                        >
-                          {email.recipient}
-                        </span>
-                      </div>
-                      <p className="text-sm font-medium text-gray-800 truncate mt-1">{email.subject}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => setSelectedEmail(email)}
-                    className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <FaEye className="w-4 h-4" />
-                  </button>
-                  <button className="p-2 text-gray-400 hover:text-green-500 hover:bg-green-50 rounded-lg transition-colors">
-                    <FaReply className="w-4 h-4" />
-                  </button>
-                  <button className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                    <FaTrash className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between card">
           <span className="text-sm text-gray-500">
-            Page {currentPage} sur {totalPages}
+            Page {currentPage} sur {totalPages} ({filteredEmails.length} éléments)
           </span>
           <div className="flex gap-2">
             <button
@@ -223,6 +502,9 @@ const EmailHistory = () => {
             >
               <FaChevronLeft className="w-4 h-4" />
             </button>
+            <span className="px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg">
+              {currentPage}
+            </span>
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}

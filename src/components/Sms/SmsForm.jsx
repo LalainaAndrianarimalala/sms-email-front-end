@@ -57,17 +57,14 @@ const SmsForm = () => {
     setLoading(true);
 
     try {
-      // Envoyer un SMS par numéro ou un seul SMS avec tous les numéros
-      // Selon l'API, on peut envoyer à plusieurs destinataires en une seule requête
+      // Envoyer avec le format correct
       const response = await smsService.send({
-        numbers: validNumbers, // Envoyer un tableau de numéros
+        numbers: validNumbers,  // ← Utiliser 'numbers' (tableau)
         message: formData.message,
       });
       
       setToast({ 
-        message: response.data.success 
-          ? `SMS envoyé avec succès à ${validNumbers.length} destinataire(s)!` 
-          : 'Erreur lors de l\'envoi', 
+        message: response.data.message || `SMS envoyé avec succès à ${validNumbers.length} destinataire(s)!`, 
         type: response.data.success ? 'success' : 'error' 
       });
       

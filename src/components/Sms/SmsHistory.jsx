@@ -13,43 +13,203 @@ import {
   FaChevronRight,
   FaPhone,
   FaUser,
-  FaCalendar
+  FaCalendar,
+  FaTimes,
+  FaFileExcel,
+  FaCalendarAlt,
+  FaSort,
+  FaSortUp,
+  FaSortDown
 } from 'react-icons/fa';
+import * as XLSX from 'xlsx';
 import { smsService } from '../../api/api';
 import LoadingSpinner from '../Common/LoadingSpinner';
 import Toast from '../Common/Toast';
 
 const SmsHistory = () => {
   const [messages, setMessages] = useState([]);
+  const [filteredMessages, setFilteredMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState({
     direction: '',
     status: '',
+    phone: '',
+    startDate: '',
+    endDate: '',
   });
+  const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [toast, setToast] = useState(null);
+  const [sortField, setSortField] = useState('createdAt');
+  const [sortDirection, setSortDirection] = useState('desc');
 
   useEffect(() => {
     fetchHistory();
-  }, [filters]);
+  }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [messages, searchTerm, filters, sortField, sortDirection]);
 
   const fetchHistory = async () => {
     try {
       setLoading(true);
-      const params = {};
-      if (filters.direction) params.direction = filters.direction;
-      
-      const response = await smsService.history(params);
+      const response = await smsService.history();
       setMessages(response.data.messages || []);
     } catch (error) {
       setError('Erreur lors du chargement de l\'historique');
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...messages];
+
+    // Recherche
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(msg => 
+        msg.phoneNumber?.toLowerCase().includes(search) ||
+        msg.message?.toLowerCase().includes(search)
+      );
+    }
+
+    // Filtre direction
+    if (filters.direction) {
+      filtered = filtered.filter(msg => msg.direction === filters.direction);
+    }
+
+    // Filtre statut
+    if (filters.status) {
+      filtered = filtered.filter(msg => msg.status === filters.status);
+    }
+
+    // Filtre numéro
+    if (filters.phone) {
+      filtered = filtered.filter(msg => 
+        msg.phoneNumber?.includes(filters.phone)
+      );
+    }
+
+    // Filtre date début
+    if (filters.startDate) {
+      const start = new Date(filters.startDate);
+      filtered = filtered.filter(msg => 
+        msg.createdAt && new Date(msg.createdAt) >= start
+      );
+    }
+
+    // Filtre date fin
+    if (filters.endDate) {
+      const end = new Date(filters.endDate);
+      end.setHours(23, 59, 59);
+      filtered = filtered.filter(msg => 
+        msg.createdAt && new Date(msg.createdAt) <= end
+      );
+    }
+
+    // Tri
+    filtered.sort((a, b) => {
+      let aVal = a[sortField] || '';
+      let bVal = b[sortField] || '';
+      
+      if (sortField === 'createdAt' || sortField === 'sentAt') {
+        aVal = new Date(aVal).getTime() || 0;
+        bVal = new Date(bVal).getTime() || 0;
+      }
+      
+      if (sortField === 'phoneNumber') {
+        aVal = aVal.toString().toLowerCase();
+        bVal = bVal.toString().toLowerCase();
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    setFilteredMessages(filtered);
+    setCurrentPage(1);
+  };
+
+  const resetFilters = () => {
+    setFilters({
+      direction: '',
+      status: '',
+      phone: '',
+      startDate: '',
+      endDate: '',
+    });
+    setSearchTerm('');
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIcon = (field) => {
+    if (sortField !== field) return <FaSort className="w-3 h-3" />;
+    return sortDirection === 'asc' ? 
+      <FaSortUp className="w-3 h-3" /> : 
+      <FaSortDown className="w-3 h-3" />;
+  };
+
+  const exportToExcel = () => {
+    try {
+      // Préparer les données pour l'export
+      const exportData = filteredMessages.map(msg => ({
+        'ID': msg.id,
+        'Direction': msg.direction === 'outgoing' ? 'Sortant' : 'Entrant',
+        'Numéro': msg.phoneNumber,
+        'Message': msg.message,
+        'Statut': msg.status,
+        'Envoyé le': msg.sentAt ? new Date(msg.sentAt).toLocaleString('fr-FR') : 'N/A',
+        'Créé le': msg.createdAt ? new Date(msg.createdAt).toLocaleString('fr-FR') : 'N/A',
+        'Code erreur': msg.errorCode || 'N/A',
+      }));
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      
+      // Ajuster la largeur des colonnes
+      const colWidths = [
+        { wch: 8 },  // ID
+        { wch: 10 }, // Direction
+        { wch: 18 }, // Numéro
+        { wch: 40 }, // Message
+        { wch: 12 }, // Statut
+        { wch: 20 }, // Envoyé le
+        { wch: 20 }, // Créé le
+        { wch: 15 }, // Code erreur
+      ];
+      ws['!cols'] = colWidths;
+
+      XLSX.utils.book_append_sheet(wb, ws, 'SMS');
+      
+      const fileName = `historique_sms_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      setToast({ 
+        message: `Export Excel effectué avec succès (${filteredMessages.length} SMS)`, 
+        type: 'success' 
+      });
+    } catch (err) {
+      setToast({ 
+        message: 'Erreur lors de l\'export Excel', 
+        type: 'error' 
+      });
+      console.error(err);
     }
   };
 
@@ -98,12 +258,6 @@ const SmsHistory = () => {
     }).format(date);
   };
 
-  const filteredMessages = messages.filter(msg => {
-    const search = searchTerm.toLowerCase();
-    return msg.phoneNumber?.toLowerCase().includes(search) ||
-           msg.message?.toLowerCase().includes(search);
-  });
-
   const paginatedMessages = filteredMessages.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -143,121 +297,227 @@ const SmsHistory = () => {
             Historique des SMS
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            {filteredMessages.length} message{filteredMessages.length > 1 ? 's' : ''} au total
+            {filteredMessages.length} message{filteredMessages.length > 1 ? 's' : ''} sur {messages.length} au total
           </p>
         </div>
-        <button className="btn-primary flex items-center space-x-2">
-          <FaDownload className="w-4 h-4" />
-          <span>Exporter</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="btn-primary flex items-center space-x-2"
+          >
+            <FaFilter className="w-4 h-4" />
+            <span>Filtres</span>
+            {(filters.direction || filters.status || filters.phone || filters.startDate || filters.endDate) && (
+              <span className="ml-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                {Object.values(filters).filter(v => v).length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={exportToExcel}
+            className="btn-success flex items-center space-x-2"
+            disabled={filteredMessages.length === 0}
+          >
+            <FaFileExcel className="w-4 h-4" />
+            <span>Exporter Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* Filtres */}
-      <div className="card">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <FaSearch className="absolute left-3 top-3 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Rechercher par numéro ou message..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input-field pl-10"
-            />
-          </div>
-          <div className="flex gap-3">
-            <select
-              value={filters.direction}
-              onChange={(e) => setFilters(prev => ({ ...prev, direction: e.target.value }))}
-              className="input-field w-auto min-w-[150px]"
-            >
-              <option value="">Tous les sens</option>
-              <option value="outgoing">📤 Sortants</option>
-              <option value="incoming">📥 Entrants</option>
-            </select>
+      {showFilters && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-700 flex items-center">
+              <FaFilter className="mr-2 text-blue-500" />
+              Filtres avancés
+            </h3>
             <button
-              onClick={() => setFilters({ direction: '', status: '' })}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              onClick={resetFilters}
+              className="text-sm text-red-500 hover:text-red-700 flex items-center"
             >
+              <FaTimes className="mr-1" />
               Réinitialiser
             </button>
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Direction</label>
+              <select
+                value={filters.direction}
+                onChange={(e) => setFilters(prev => ({ ...prev, direction: e.target.value }))}
+                className="input-field"
+              >
+                <option value="">Tous</option>
+                <option value="outgoing">📤 Sortants</option>
+                <option value="incoming">📥 Entrants</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                className="input-field"
+              >
+                <option value="">Tous</option>
+                <option value="sent">✅ Envoyé</option>
+                <option value="failed">❌ Échoué</option>
+                <option value="pending">⏳ En attente</option>
+                <option value="received">📥 Reçu</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Numéro</label>
+              <input
+                type="text"
+                value={filters.phone}
+                onChange={(e) => setFilters(prev => ({ ...prev, phone: e.target.value }))}
+                placeholder="+261..."
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date début</label>
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date fin</label>
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={resetFilters}
+                className="btn-primary w-full"
+              >
+                Appliquer les filtres
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recherche */}
+      <div className="card">
+        <div className="relative">
+          <FaSearch className="absolute left-3 top-3 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Rechercher par numéro ou message..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="input-field pl-10"
+          />
         </div>
       </div>
 
       {/* Liste des messages */}
-      <div className="space-y-3">
-        {paginatedMessages.length === 0 ? (
-          <div className="card text-center py-12">
-            <FaSms className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-            <p className="text-gray-500 text-lg">Aucun SMS trouvé</p>
-            <p className="text-sm text-gray-400">Ajustez vos filtres ou synchronisez votre boîte de réception</p>
-          </div>
-        ) : (
-          paginatedMessages.map((msg) => (
-            <div key={msg.id} className="card hover:shadow-lg transition-shadow duration-300">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                {/* Info principale */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('direction')}>
+                <div className="flex items-center space-x-1">
+                  <span>Direction</span>
+                  {getSortIcon('direction')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('phoneNumber')}>
+                <div className="flex items-center space-x-1">
+                  <span>Numéro</span>
+                  {getSortIcon('phoneNumber')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Message</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('status')}>
+                <div className="flex items-center space-x-1">
+                  <span>Statut</span>
+                  {getSortIcon('status')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer" onClick={() => handleSort('createdAt')}>
+                <div className="flex items-center space-x-1">
+                  <span>Date</span>
+                  {getSortIcon('createdAt')}
+                </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {paginatedMessages.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                  <FaSms className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <p>Aucun SMS trouvé</p>
+                  <p className="text-sm text-gray-400">Ajustez vos filtres ou synchronisez votre boîte de réception</p>
+                </td>
+              </tr>
+            ) : (
+              paginatedMessages.map((msg) => (
+                <tr key={msg.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3">
                     {getDirectionBadge(msg.direction)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-medium text-gray-700">{msg.phoneNumber}</span>
+                      <button
+                        onClick={() => handleCopyPhone(msg.phoneNumber)}
+                        className="text-xs text-blue-500 hover:text-blue-700"
+                      >
+                        Copier
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm text-gray-600 max-w-xs truncate">{msg.message}</p>
+                  </td>
+                  <td className="px-4 py-3">
                     {getStatusBadge(msg.status)}
-                    <span className="text-xs text-gray-400 flex items-center">
-                      <FaCalendar className="mr-1 w-3 h-3" />
-                      {formatDate(msg.createdAt)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold flex-shrink-0">
-                      {msg.phoneNumber?.slice(-2) || '??'}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    {formatDate(msg.createdAt)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setSelectedMessage(msg)}
+                        className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Voir les détails"
+                      >
+                        <FaEye className="w-4 h-4" />
+                      </button>
+                      <button
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Supprimer"
+                      >
+                        <FaTrash className="w-4 h-4" />
+                      </button>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <FaPhone className="w-3 h-3 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-800">{msg.phoneNumber}</span>
-                        <button
-                          onClick={() => handleCopyPhone(msg.phoneNumber)}
-                          className="text-xs text-blue-500 hover:text-blue-700"
-                        >
-                          Copier
-                        </button>
-                      </div>
-                      <p className="text-sm text-gray-600 truncate mt-1">{msg.message}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => setSelectedMessage(msg)}
-                    className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <FaEye className="w-4 h-4" />
-                  </button>
-                  <button className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                    <FaTrash className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Détails supplémentaires pour les messages envoyés */}
-              {msg.direction === 'outgoing' && msg.sentAt && (
-                <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-4 text-xs text-gray-400">
-                  <span>📤 Envoyé le {formatDate(msg.sentAt)}</span>
-                  {msg.errorCode && <span className="text-red-400">Erreur: {msg.errorCode}</span>}
-                </div>
-              )}
-            </div>
-          ))
-        )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between card">
           <span className="text-sm text-gray-500">
-            Page {currentPage} sur {totalPages}
+            Page {currentPage} sur {totalPages} ({filteredMessages.length} éléments)
           </span>
           <div className="flex gap-2">
             <button
@@ -267,6 +527,9 @@ const SmsHistory = () => {
             >
               <FaChevronLeft className="w-4 h-4" />
             </button>
+            <span className="px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg">
+              {currentPage}
+            </span>
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}
@@ -309,9 +572,15 @@ const SmsHistory = () => {
                 <div className="mt-1">{getDirectionBadge(selectedMessage.direction)}</div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Date</label>
+                <label className="text-sm font-medium text-gray-500">Date de création</label>
                 <p className="text-gray-800">{formatDate(selectedMessage.createdAt)}</p>
               </div>
+              {selectedMessage.sentAt && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Date d'envoi</label>
+                  <p className="text-gray-800">{formatDate(selectedMessage.sentAt)}</p>
+                </div>
+              )}
               {selectedMessage.rawResponse && (
                 <div>
                   <label className="text-sm font-medium text-gray-500">Réponse brute</label>
