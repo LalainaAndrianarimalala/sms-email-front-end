@@ -1,12 +1,21 @@
 import axios from 'axios';
 
+// Détecter si on utilise ngrok
+const isNgrok = import.meta.env.VITE_USE_NGROK === 'true';
+
+// Utiliser l'URL de l'API
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
+console.log('🔧 Mode:', isNgrok ? 'ngrok' : 'local');
+console.log('🔗 API_BASE_URL:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000, // Timeout de 30 secondes
+  withCredentials: false,
 });
 
 // Intercepteur pour gérer les erreurs
@@ -14,20 +23,30 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      console.error('API Error:', error.response.data);
+      console.error('❌ API Error:', error.response.data);
+      console.error('❌ Status:', error.response.status);
     } else if (error.request) {
-      console.error('No response from server');
+      console.error('❌ No response from server');
+      console.error('❌ URL:', error.config?.url);
     } else {
-      console.error('Request error:', error.message);
+      console.error('❌ Request error:', error.message);
     }
     return Promise.reject(error);
   }
 );
 
+// Intercepteur pour logger les requêtes
+api.interceptors.request.use(
+  (config) => {
+    console.log(`📤 ${config.method.toUpperCase()} ${config.url}`);
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 // Services Email
 export const emailService = {
   send: (data) => {
-    // Si 'to' est une chaîne avec des virgules, la convertir en tableau
     if (typeof data.to === 'string') {
       data.to = data.to.split(',').map(email => email.trim()).filter(email => email);
     }
@@ -40,16 +59,24 @@ export const emailService = {
 // Services SMS
 export const smsService = {
   send: (data) => {
-    // Si 'numbers' est une chaîne avec des virgules, la convertir en tableau
-    if (typeof data.numbers === 'string') {
-      data.numbers = data.numbers.split(',').map(num => num.trim()).filter(num => num);
+    const payload = { ...data };
+    
+    if (typeof payload.numbers === 'string') {
+      payload.numbers = payload.numbers.split(',').map(n => n.trim()).filter(n => n);
     }
-    // Si 'number' est utilisé (ancien format), le convertir en tableau
-    if (data.number && !data.numbers) {
-      data.numbers = [data.number];
-      delete data.number;
+    
+    if (payload.number && !payload.numbers) {
+      payload.numbers = [payload.number];
+      delete payload.number;
     }
-    return api.post('/sms/send', data);
+    
+    if (payload.to && !payload.numbers) {
+      payload.numbers = Array.isArray(payload.to) ? payload.to : [payload.to];
+      delete payload.to;
+    }
+    
+    console.log('📤 Envoi SMS payload:', payload);
+    return api.post('/sms/send', payload);
   },
   history: (params) => api.get('/sms/history', { params }),
   inbox: () => api.get('/sms/inbox'),
