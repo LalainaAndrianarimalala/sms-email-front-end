@@ -10,7 +10,8 @@ import {
   FaCog,
   FaSignOutAlt,
   FaChevronLeft,
-  FaChevronRight
+  FaChevronRight,
+  FaUsers
 } from 'react-icons/fa';
 
 const Sidebar = ({ sidebarOpen, setSidebarOpen }) => {
@@ -32,7 +33,13 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }) => {
         { to: '/sms/inbox', icon: FaInbox, label: 'Boîte de réception' },
         { to: '/sms/charts', icon: FaChartBar, label: 'Statistiques SMS' },
       ]
-    }
+    },
+    { 
+      section: 'Contact',
+      items: [
+        { to: '/contacts', icon: FaUsers, label: 'Mes contacts' },
+      ]
+    },
   ];
 
   return (
