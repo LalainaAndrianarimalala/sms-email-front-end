@@ -19,16 +19,16 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }) => {
     { 
       section: 'Email',
       items: [
-        { to: '/emails', icon: FaEnvelope, label: 'Emails' },
-        { to: '/emails/send', icon: FaPaperPlane, label: 'Envoyer un Email' },
+        { to: '/emails/history', icon: FaEnvelope, label: 'Historique Emails' },
+        { to: '/emails/send', icon: FaPaperPlane, label: 'Envoyer des Emails' },
         { to: '/emails/charts', icon: FaChartBar, label: 'Statistiques Email' },
       ]
     },
     {
       section: 'SMS',
       items: [
-        { to: '/sms', icon: FaSms, label: 'SMS' },
-        { to: '/sms/send', icon: FaPaperPlane, label: 'Envoyer un SMS' },
+        { to: '/sms/history', icon: FaSms, label: 'Historique SMS' },
+        { to: '/sms/send', icon: FaPaperPlane, label: 'Envoyer des SMS' },
         { to: '/sms/inbox', icon: FaInbox, label: 'Boîte de réception' },
         { to: '/sms/charts', icon: FaChartBar, label: 'Statistiques SMS' },
       ]
