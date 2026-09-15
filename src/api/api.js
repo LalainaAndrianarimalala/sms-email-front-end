@@ -1,18 +1,18 @@
-import axios from 'axios';
+import axios from "axios";
 
 // Détecter si on utilise ngrok
-const isNgrok = import.meta.env.VITE_USE_NGROK === 'true';
+const isNgrok = import.meta.env.VITE_USE_NGROK === "true";
 
 // Utiliser l'URL de l'API
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
-console.log('🔧 Mode:', isNgrok ? 'ngrok' : 'local');
-console.log('🔗 API_BASE_URL:', API_BASE_URL);
+console.log("🔧 Mode:", isNgrok ? "ngrok" : "local");
+console.log("🔗 API_BASE_URL:", API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
   timeout: 30000, // Timeout de 30 secondes
   withCredentials: false,
@@ -23,13 +23,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      console.error('❌ API Error:', error.response.data);
-      console.error('❌ Status:', error.response.status);
+      console.error("❌ API Error:", error.response.data);
+      console.error("❌ Status:", error.response.status);
     } else if (error.request) {
-      console.error('❌ No response from server');
-      console.error('❌ URL:', error.config?.url);
+      console.error("❌ No response from server");
+      console.error("❌ URL:", error.config?.url);
     } else {
-      console.error('❌ Request error:', error.message);
+      console.error("❌ Request error:", error.message);
     }
     return Promise.reject(error);
   }
@@ -44,15 +44,43 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Contact
+export const contactService = {
+  create: (data) => api.post(`/contact/nouveau`, data),
+  list: (params) => api.get(`/contact/all`, { params }),
+  getById: (id) => api.get(`/contact/ById/${id}`),
+  getByEmail: (email) => api.get(`/contact/${email}`),
+  update: (id, data) => api.put(`/contact/update/${id}`, data),
+
+  // Envoie email/sms a partir de contact
+  sendEmail: (id, data) => api.post(`/contact/${id}/email`, data),
+  sendSms: (id, data) => api.post(`/contact/${id}/sms`, data),
+  // Stat
+  getStats: (id) => api.get(`/contact/${id}/stats`),
+  getHistory: (id, params) => api.get(`/contact/${id}/history`, { params }),
+  sendBulkEmail: (data) => api.post("/contact/bulk/email", data),
+  sendBulkSms: (data) => api.post("/contact/bulk/sms", data),
+  deleteContact: (id) => api.delete(`/contact/delete/${id}`),
+  // Export unifié
+  exportContacts: (params = {}) =>
+    api.get("/contact/export", { params, responseType: "blob" }),
+
+  // Options (formats + champs disponibles)
+  getExportOptions: () => api.get("/contact/export/options"),
+};
+
 // Services Email
 export const emailService = {
   send: (data) => {
-    if (typeof data.to === 'string') {
-      data.to = data.to.split(',').map(email => email.trim()).filter(email => email);
+    if (typeof data.to === "string") {
+      data.to = data.to
+        .split(",")
+        .map((email) => email.trim())
+        .filter((email) => email);
     }
-    return api.post('/emails/send', data);
+    return api.post("/emails/send", data);
   },
-  list: (params) => api.get('/emails', { params }),
+  list: (params) => api.get("/emails", { params }),
   getById: (id) => api.get(`/emails/${id}`),
 };
 
@@ -60,34 +88,37 @@ export const emailService = {
 export const smsService = {
   send: (data) => {
     const payload = { ...data };
-    
-    if (typeof payload.numbers === 'string') {
-      payload.numbers = payload.numbers.split(',').map(n => n.trim()).filter(n => n);
+
+    if (typeof payload.numbers === "string") {
+      payload.numbers = payload.numbers
+        .split(",")
+        .map((n) => n.trim())
+        .filter((n) => n);
     }
-    
+
     if (payload.number && !payload.numbers) {
       payload.numbers = [payload.number];
       delete payload.number;
     }
-    
+
     if (payload.to && !payload.numbers) {
       payload.numbers = Array.isArray(payload.to) ? payload.to : [payload.to];
       delete payload.to;
     }
-    
-    console.log('📤 Envoi SMS payload:', payload);
-    return api.post('/sms/send', payload);
+
+    console.log("📤 Envoi SMS payload:", payload);
+    return api.post("/sms/send", payload);
   },
-  history: (params) => api.get('/sms/history', { params }),
-  inbox: () => api.get('/sms/inbox'),
-  sync: () => api.post('/sms/sync'),
+  history: (params) => api.get("/sms/history", { params }),
+  inbox: () => api.get("/sms/inbox"),
+  sync: () => api.post("/sms/sync"),
 };
 
 // Services Statistiques
 export const statsService = {
-  getSimpleStats: (params) => api.get('/sms/chart/simple', { params }),
-  getFullStats: (params) => api.get('/sms/chart/stats', { params }),
-  getWeekdayStats: (params) => api.get('/sms/chart/weekday', { params }),
+  getSimpleStats: (params) => api.get("/sms/chart/simple", { params }),
+  getFullStats: (params) => api.get("/sms/chart/stats", { params }),
+  getWeekdayStats: (params) => api.get("/sms/chart/weekday", { params }),
 };
 
 export default api;
